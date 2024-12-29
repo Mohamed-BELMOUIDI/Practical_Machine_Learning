@@ -1,0 +1,146 @@
+---
+title: "College Major Income Analysis"
+author: "Mohamed Belmouidi"
+date: "28/12/2024"
+output:
+  html_document:
+    self_contained: true
+    toc: true
+    toc_depth: 4
+    toc_float:
+      collapsed: false
+      smooth_scroll: true
+  pdf_document:
+    toc: true
+    toc_depth: '4'
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Introduction
+Using devices such as Jawbone Up, Nike FuelBand, and Fitbit, it is now possible to collect a large amount of data about personal activity relatively inexpensively. These types of devices are part of the quantified self movement—a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks. One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it.
+
+In this project, we will use data from accelerometers on the belt, forearm, arm, and dumbbell of 6 participants to predict the manner in which they performed the exercise.
+
+## Libraries Required
+
+```{r libraries}
+library(caret)
+library(randomForest)
+library(corrplot)
+```
+
+## Data Variables
+
+```{r data-variables}
+training.url <- 'http://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv'
+test.cases.url <- 'http://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv'
+```
+
+## Data Preprocessing
+
+In this section:
+
+- Data is downloaded and processed.
+- NA values are removed.
+
+```{r data-preprocessing}
+downloadcsv <- function(url, nastrings) {
+    temp <- tempfile()
+    download.file(url, temp, method = "curl")
+    data <- read.csv(temp, na.strings = nastrings)
+    unlink(temp)
+    return(data)
+}
+
+train <- downloadcsv(training.url, c("", "NA", "#DIV/0!"))
+test <- downloadcsv(test.cases.url, c("", "NA", "#DIV/0!"))
+
+dim(train)
+```
+
+Split the data into training and validation sets:
+
+```{r split-data}
+set.seed(123456)
+trainset <- createDataPartition(train$classe, p = 0.8, list = FALSE)
+Training <- train[trainset, ]
+Validation <- train[-trainset, ]
+```
+
+## Feature Selection
+
+- Check for near zero variance predictors and drop them.
+- Exclude columns with more than 40% missing values.
+- Remove descriptive columns.
+
+```{r feature-selection}
+nonzerocol <- nearZeroVar(Training)
+Training <- Training[, -nonzerocol]
+
+countlength <- sapply(Training, function(x) {
+    sum(!(is.na(x) | x == ""))
+})
+
+nullCol <- names(countlength[countlength < 0.6 * length(Training$classe)])
+
+descriptcol <- c("X", "user_name", "raw_timestamp_part_1", "raw_timestamp_part_2", 
+                 "cvtd_timestamp", "new_window", "num_window")
+
+excludecolumns <- c(descriptcol, nullCol)
+
+Training <- Training[, !names(Training) %in% excludecolumns]
+```
+
+## Correlation Matrix Visualization
+
+Visualizing the correlation matrix of the numeric features in the training dataset:
+
+```{r correlation-matrix}
+# Select numeric columns only
+numericCols <- sapply(Training, is.numeric)
+numericTraining <- Training[, numericCols]
+
+# Compute the correlation matrix
+corMatrix <- cor(numericTraining, use = "pairwise.complete.obs")
+
+# Plot the correlation matrix
+corrplot(corMatrix, method = "color", type = "upper", tl.col = "black", tl.cex = 0.8, addCoef.col = "gray")
+```
+
+## Model Training & Validation
+
+Train the random forest model:
+
+```{r train-model}
+rfModel <- randomForest(as.factor(classe) ~ ., data = Training, importance = TRUE, ntree = 10)
+```
+
+Validate the model:
+
+```{r validate-model}
+ptraining <- predict(rfModel, Training)
+u1 <- union(ptraining, Training$classe)
+t1 <- table(factor(ptraining, u1), factor(Training$classe, u1))
+print(confusionMatrix(t1))
+```
+
+## Validation (Out-of-Sample)
+
+```{r validation}
+pvalidation <- predict(rfModel, Validation)
+u2 <- union(pvalidation, Validation$classe)
+t2 <- table(factor(pvalidation, u2), factor(Validation$classe, u2))
+print(confusionMatrix(t2))
+```
+
+## Test Set Prediction
+
+Prediction of our algorithm for the test set:
+
+```{r test-prediction}
+ptest <- predict(rfModel, test)
+ptest
+```
